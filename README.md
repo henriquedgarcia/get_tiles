@@ -23,7 +23,7 @@ Optional arguments:
 
     -h, --help              Show this help message and exit
     -proj PROJECTION        The projection [erp|cmp]. (Default: "erp")
-    -fov FOV                The Field of View in degree (Default: "110x90")
+    -fov FOV                The Field of View in degree (Default: "100x90")
     -tiling TILING          The tiling of projection. (Default: "3x2")
     -coord YAW PITCH ROLL   The center of viewport in degree. (Default: "0 0 0")
     -out OUTPUT_FILE        Save the projection marks to OUTPUT_FILE file.
