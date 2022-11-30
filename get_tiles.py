@@ -1,8 +1,9 @@
 import argparse
-from math import pi
 from abc import ABC, abstractmethod
+from math import pi
 
 import numpy as np
+
 np.set_printoptions(precision=3)
 
 from matplotlib import pyplot as plt
@@ -13,7 +14,7 @@ from util import splitx, rot_matrix, get_borders
 class Viewport:
     base_normals: np.ndarray
     fov: tuple
-
+    px_in_vp: np.ndarray
     yaw_pitch_roll: np.ndarray = np.array([0, 0, 0])
     _mat_rot: np.ndarray
     _rotated_normals: np.ndarray
@@ -44,8 +45,8 @@ class Viewport:
 
         """
         inner_prod = self.rotated_normals.T @ x_y_z
-        px_in_vp = np.all(inner_prod <= 0, axis=0)
-        self._is_in_vp = np.any(px_in_vp)
+        self.px_in_vp = np.all(inner_prod <= 0, axis=0)
+        self._is_in_vp = np.any(self.px_in_vp)
         return self._is_in_vp
 
     def make_base_normals(self) -> None:
@@ -89,12 +90,11 @@ class Viewport:
         return self._rotated_normals
 
 
-from abc import abstractproperty
 class Projection(ABC):
     viewport: Viewport
     yaw_pitch_roll: np.ndarray
     projection: np.ndarray  # A RGB image
-    vptiles: list
+    vptiles: dict
 
     def __init__(self, tiling: str, proj_res: str, fov: str):
         # Create the viewport
@@ -107,13 +107,13 @@ class Projection(ABC):
         # Create the tiling
         self.tiling = np.array(splitx(tiling)[::-1], dtype=int)
         self.n_tiles = self.tiling[0] * self.tiling[1]
-        self.tile_res = (self.shape / self.tiling).astype(int)
+        self.tile_shape = (self.shape / self.tiling).astype(int)
         self.tile_position_list = np.array([(n, m)
-                                            for n in range(0, self.shape[0], self.tile_res[0])
-                                            for m in range(0, self.shape[1], self.tile_res[1])])
+                                            for n in range(0, self.shape[0], self.tile_shape[0])
+                                            for m in range(0, self.shape[1], self.tile_shape[1])])
 
         # Get tiles borders
-        self.tile_border_base = get_borders(shape=self.tile_res)
+        self.tile_border_base = get_borders(shape=self.tile_shape)
 
     @property
     @abstractmethod
@@ -165,33 +165,40 @@ class ERP(Projection):
             borders_nm = self.get_tile_borders_nm(tile)
             self.tiles_borders_xyz.append(self.nm2xyz(nm_coord=borders_nm, shape=self.shape))
 
-    def get_vptiles(self, yaw_pitch_roll) -> list[int]:
+    def get_vptiles(self, yaw_pitch_roll) -> dict[int, str]:
         """
 
         :param yaw_pitch_roll: The coordinate of center of VP.
         :return:
         """
-        if tuple(self.tiling) == (1, 1): return [0]
+        if tuple(self.tiling) == (1, 1):
+            return {0: '100.00%'}
+
         self.viewport = Viewport(yaw_pitch_roll, self.fov)
-        self.vptiles = []
+        self.vptiles = {}
+        n_pix = self.tile_shape[0] * self.tile_shape[1]
+
         for tile in range(self.n_tiles):
-            if self.viewport.is_viewport(self.tiles_borders_xyz[tile]):
-                self.vptiles.append(tile)
+            tile_coord_xyz = self.get_tile_array(tile, self.proj_coord_xyz)
+            if self.viewport.is_viewport(tile_coord_xyz.reshape([3, -1])):
+                count_pix = np.sum(self.viewport.px_in_vp)
+                self.vptiles[tile] = f'{100 * count_pix / n_pix:.2f}%'
+                # plt.imshow(self.viewport.px_in_vp.reshape(self.tile_shape));plt.show()
+
         return self.vptiles
 
     def get_projection(self):
         self.projection = np.zeros(self.shape, dtype='uint8')
+
         for tile in range(self.n_tiles):
             n, m = self.get_tile_borders_nm(tile)
-            self.projection[n, m] = 100
+            if tile in self.vptiles:
+                self.projection[n, m] = 255
+            else:
+                self.projection[n, m] = 100
 
-        for tile in self.vptiles:
-            n, m = self.get_tile_borders_nm(int(tile))
-            self.projection[n, m] = 255
-
-        rotated_normals = self.viewport.rotated_normals.T
-        inner_product = np.tensordot(rotated_normals, self.proj_coord_xyz, axes=1)
-        belong = np.all(inner_product <= 0, axis=0)
+        self.viewport.is_viewport(self.proj_coord_xyz.reshape((3, -1)))
+        belong = self.viewport.px_in_vp.reshape(self.proj_coord_xyz.shape[1:])
         self.projection[belong] = 200
 
         return self.projection
@@ -254,20 +261,19 @@ class CMP(Projection):
         super().__init__(tiling, proj_res, fov)
 
         # Create faces structures
-        face_h, face_w = face_shape =  (self.shape / (2, 3)).astype(int)
+        face_h, face_w = face_shape = (self.shape / (2, 3)).astype(int)
         face_array_mn = np.mgrid[range(face_h), range(face_w)]
 
         self.face_position_list = np.array([(n, m)
-                                       for n in range(0, self.shape[0], face_h)
-                                       for m in range(0, self.shape[1], face_w)])
-
+                                            for n in range(0, self.shape[0], face_h)
+                                            for m in range(0, self.shape[1], face_w)])
 
         self.proj_coord_xyz = self.nm2xyz(self.proj_coord_nm)
 
         self.tiles_borders_xyz = []
         for tile in range(self.n_tiles):
             borders_nm = self.get_tile_borders_nm(tile)
-            borders_xyz=self.proj_coord_xyz[:,borders_nm[0,:],borders_nm[1,:]]  #testar
+            borders_xyz = self.proj_coord_xyz[:, borders_nm[0, :], borders_nm[1, :]]  # testar
             self.tiles_borders_xyz.append(borders_xyz)
 
     @property
@@ -275,9 +281,9 @@ class CMP(Projection):
         return 6
 
     @staticmethod
-    def nm2xyz(nm_coord: np.ndarray, proj_shape: np.ndarray = None, face: int=None):
+    def nm2xyz(nm_coord: np.ndarray, proj_shape: np.ndarray = None, face: int = None):
         # nm_coord is only for face
-        u=v=np.array([])
+        u = v = np.array([])
         z, y, x = 0, 0, 0
 
         def face2vu():
@@ -307,7 +313,7 @@ class CMP(Projection):
             elif face == 3:
                 # down rotate  90° anti-clockwise
                 w = np.zeros(u.shape)
-                a = np.array([u,v,w])
+                a = np.array([u, v, w])
                 u1, v1, w3 = (a.transpose([1, 2, 0]) @ rot_matrix([0, 0, pi / 2])).transpose([2, 0, 1])
 
                 x = u1
@@ -316,7 +322,7 @@ class CMP(Projection):
             elif face == 4:
                 # back rotate 90° clockwise
                 w = np.zeros(u.shape)
-                a = np.array([u,v,w])
+                a = np.array([u, v, w])
                 u1, v1, w3 = (a.transpose([1, 2, 0]) @ rot_matrix([0, 0, -pi / 2])).transpose([2, 0, 1])
 
                 x = -u1
@@ -346,7 +352,7 @@ class CMP(Projection):
             for face in range(6):
                 vu2xyz()
                 n, m = face_position_list[face]
-                proj_coord_xyz[:, n:n+face_h, m:m+face_w] = np.array([x,y,z])
+                proj_coord_xyz[:, n:n + face_h, m:m + face_w] = np.array([x, y, z])
 
             return proj_coord_xyz
 
@@ -359,7 +365,7 @@ class CMP(Projection):
             return np.array([x, y, z])
 
     @staticmethod
-    def xyz2nm(xyz_coord: np.ndarray, shape: np.ndarray = None, round_nm: bool = False, face: int=0):
+    def xyz2nm(xyz_coord: np.ndarray, shape: np.ndarray = None, round_nm: bool = False, face: int = 0):
         x, y, z = xyz_coord
         f = 0
         r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
@@ -372,6 +378,7 @@ class CMP(Projection):
 
     get_vptiles = ERP.get_vptiles
     get_projection = ERP.get_projection
+
 
 def test():
     # erp '144x72', [array([0, 0]), array([144,  72]), array([288, 144]), array([432, 216]), array([576, 288]), array([720, 360]), array([864, 432]), array([1008,  504]), array([1152,  576]), array([1296,  648])]
@@ -387,6 +394,7 @@ def test():
         plt.imsave(f'teste/teste_{frame}.png', projection)
 
         print(f'The viewport touch the tiles {tiles}.')
+
 
 def main():
     if proj == 'erp':
@@ -408,10 +416,10 @@ def main():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter, description='Get the tiles seen in viewport.')
-    parser.add_argument('-proj', default='erp',metavar='PROJECTION', help='The projection [erp|cmp]')
-    parser.add_argument('-fov', default='100x90', metavar='FOV',  help=f'The Field of View in degree. Ex: 100x90')
-    parser.add_argument('-tiling', default='3x2', metavar='TILING',  help=f'The tiling of projection. Ex: 3x2.')
-    parser.add_argument('-coord', default=['0','0','0'], nargs=3, metavar=('YAW', 'PITCH', 'ROLL'),  help=f'The center of viewport in degree ex: 15,25,-30')
+    parser.add_argument('-proj', default='erp', metavar='PROJECTION', help='The projection [erp|cmp]')
+    parser.add_argument('-fov', default='100x90', metavar='FOV', help=f'The Field of View in degree. Ex: 100x90')
+    parser.add_argument('-tiling', default='3x2', metavar='TILING', help=f'The tiling of projection. Ex: 3x2.')
+    parser.add_argument('-coord', default=['0', '0', '0'], nargs=3, metavar=('YAW', 'PITCH', 'ROLL'), help=f'The center of viewport in degree ex: 15,25,-30')
     parser.add_argument('-out', default=None, metavar='OUTPUT_FILE', help=f'Save the projection marks to OUTPUT_FILE file.')
 
     args = parser.parse_args()
@@ -422,4 +430,3 @@ if __name__ == '__main__':
     out = args.out
 
     main()
-
