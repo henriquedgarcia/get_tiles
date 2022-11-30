@@ -388,6 +388,23 @@ def test():
 
         print(f'The viewport touch the tiles {tiles}.')
 
+def main():
+    if proj == 'erp':
+        projection = ERP(tiling, f'1296x648', fov)
+    elif proj == 'cmp':
+        projection = CMP(tiling, f'972x648', fov)
+    else:
+        raise ValueError('The -proj must be "erp" or "cmp"')
+
+    tiles = projection.get_vptiles(np.deg2rad(yaw_pitch_roll))
+
+    if out is not None:
+        projection = projection.get_projection()
+        plt.imsave(f'{out}', projection)
+
+    import json
+    print(json.dumps(tiles, indent=2))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter, description='Get the tiles seen in viewport.')
@@ -404,18 +421,5 @@ if __name__ == '__main__':
     yaw_pitch_roll: list = list(map(float, args.coord))
     out = args.out
 
-    if proj == 'erp':
-        projection = ERP(tiling, f'1296x648', fov)
-    elif proj == 'cmp':
-        projection = CMP(tiling, f'972x648', fov)
-    else:
-        raise ValueError('The -proj must be "erp" or "cmp"')
-
-    tiles = projection.get_vptiles(np.deg2rad(yaw_pitch_roll))
-
-    if out is not None:
-        projection = projection.get_projection()
-        plt.imsave(f'{out}', projection)
-
-    print(tiles)
+    main()
 
