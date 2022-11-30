@@ -124,6 +124,14 @@ class Projection(ABC):
         # projection agnostic
         return self.tile_border_base + self.tile_position_list[idx].reshape(2, -1)
 
+    def get_tile_array(self, tile, array):
+        n, m = self.tile_position_list[tile]
+        h, w = self.tile_shape
+        if array.shape[0] >= 3:
+            return array[..., n:n + h, m:m + w]
+        else:
+            return array[n:n + h, m:m + w]
+
     @staticmethod
     @abstractmethod
     def nm2xyz(nm_coord: np.ndarray, shape: np.ndarray, face: int):
