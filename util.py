@@ -23,6 +23,7 @@ def splitx(string: str) -> tuple[int, ...]:
     """
     return tuple(map(int, string.split('x')))
 
+
 def rot_matrix(yaw_pitch_roll: Union[np.ndarray, list]) -> np.ndarray:
     """
     Create rotation matrix using Tait–Bryan angles in Z-Y-X order.
@@ -64,6 +65,22 @@ def rot_matrix(yaw_pitch_roll: Union[np.ndarray, list]) -> np.ndarray:
     )
 
     return mat_y @ mat_x @ mat_z
+
+
+def xyz2hcs(x, y, z) -> tuple[float, float]:
+    """
+    Convert from cartesian system to horizontal coordinate system in radians
+    :param float x: Coordinate from X axis
+    :param float y: Coordinate from Y axis
+    :param float z: Coordinate from Z axis
+    :return: (azimuth, elevation) - in rad
+    """
+    # z-> x,
+    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+    azimuth = np.arctan2(x, z)
+    elevation = np.arcsin(-y / r)
+    return azimuth, elevation
+
 
 
 def get_borders(*, coord_nm: Union[tuple, np.ndarray] = None, shape=None, thickness=1):
