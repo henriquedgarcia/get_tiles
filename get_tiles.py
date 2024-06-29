@@ -1,6 +1,7 @@
 import argparse
 from abc import ABC, abstractmethod
 from math import pi
+from typing import Union
 
 import numpy as np
 
@@ -367,6 +368,7 @@ class CMP(Projection):
     @staticmethod
     def xyz2nm(xyz_coord: np.ndarray, shape: np.ndarray = None, round_nm: bool = False, face: int = 0):
         x, y, z = xyz_coord
+
         f = 0
         r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
         azimuth = np.arctan2(x, z)
@@ -378,6 +380,85 @@ class CMP(Projection):
 
     get_vptiles = ERP.get_vptiles
     get_projection = ERP.get_projection
+
+    def ea2nm(self, ea_coord: np.ndarray, shape: Union[tuple, np.ndarray] = None):
+        """
+
+        :param ea_coord: [elevation, azimuth].shape == (2, proj_h, proj_w)
+        :param shape: Shape from the projection (proj_h, proj_w)
+        :return:
+        """
+        shape = shape if shape is not None else ea_coord[0].shape
+        face_shape = shape[0] / 2, shape[1] / 3
+
+        xyz = ea2xyv(ea_coord)
+        uv = self.xyv2uv(xyz)
+        nm = uv2nm(ea_coord)
+
+    @staticmethod
+    def xyv2uv(xyv_coord: np.ndarray, faces):
+        x, y, z = xyv_coord
+        vu_coord = np.zeros((3,) + x.shape)
+        abs_xyv_coord = np.abs(xyv_coord)
+        vu_coord[0][faces == 0] = x/z
+        vu_coord[1][faces == 0] = x/-y
+
+        vu_coord[0][faces == 0] = -y
+        vu_coord[1][faces == 0] = z
+        vu_coord[0][faces == 1] = -y
+        vu_coord[1][faces == 1] = x
+        vu_coord[0][faces == 2] = -y
+        vu_coord[1][faces == 2] = -z
+        vu_coord[0][faces == 3] = x
+        vu_coord[1][faces == 3] = -z
+        vu_coord[0][faces == 4] = x
+        vu_coord[1][faces == 4] = -y
+        vu_coord[0][faces == 5] = x
+        vu_coord[1][faces == 5] = z
+
+    @staticmethod
+    def get_faces(ea_coord):
+        # find face
+        # l f r  (0, 1, 2)
+        # b r t  (3, 4, 5)
+        shape = ea_coord[0].shape
+        face_h, face_w = shape[0] / 2, shape[1] / 3
+
+        faces = np.zeros(ea_coord[0].shape) + 4  # default is rear
+        faces[ea_coord[0] > pi / 4] = 5  # Top
+        faces[ea_coord[0] < -pi / 4] = 3  # Down
+        faces[-pi / 4 <= ea_coord[0] <= pi / 4 and -3 * pi / 4 < ea_coord[1] <= -pi / 4] = 0  # left
+        faces[-pi / 4 <= ea_coord[0] <= pi / 4 and -pi / 4 < ea_coord[1] <= pi / 4] = 1  # front
+        faces[-pi / 4 <= ea_coord[0] <= pi / 4 and pi / 4 < ea_coord[1] <= 3 * pi / 4] = 2  # right
+        return faces
+
+
+
+
+
+
+
+def ea2xyv(hcs_coord: np.ndarray):
+    elevation, azimuth = hcs_coord
+    z = np.cos(elevation) * np.cos(azimuth)
+    y = -np.sin(elevation)
+    x = np.cos(elevation) * np.sin(azimuth)
+    return np.asarray([x, y, z])
+
+def xyv2ea(xyz_coord: np.ndarray) -> tuple[float, float]:
+    x, y, z = xyz_coord
+    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+    azimuth = np.arctan2(x, z)
+    elevation = np.arcsin(-y / r)
+    return elevation, azimuth
+
+
+
+
+
+
+
+
 
 
 def test():
